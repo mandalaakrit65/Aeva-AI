@@ -1,0 +1,17 @@
+{
+  "rulesVersion": "2",
+  "collections": [
+    {
+      "name": "chat_history",
+      "fields": [
+        { "name": "userId", "type": "string" },
+        { "name": "agentMessage", "type": "string", "optional": true },
+        { "name": "timestamp", "type": "timestamp" }
+      ],
+      "rules": [
+        { "action": "read, write", "condition": "request.auth != null && request.auth.uid == resource.data.userId" },
+        { "action": "create", "condition": "request.auth != null && request.resource.data.userId == request.auth.uid" }
+      ]
+    }
+  ]
+}

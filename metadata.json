@@ -1,0 +1,6 @@
+{
+  "name": "Aeva AI Assistant",
+  "description": "A real-time, voice-to-voice AI assistant web app with a playful, sassy, and emotionally responsive personality.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
