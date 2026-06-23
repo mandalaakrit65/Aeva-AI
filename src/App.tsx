@@ -57,6 +57,9 @@ export default function App() {
   const userRef = useRef<User | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [historyLogs, setHistoryLogs] = useState<any[]>([]);
+  const [preferredName, setPreferredName] = useState<string>('');
+  const [tempPreferredName, setTempPreferredName] = useState<string>('');
+  const [showNameModal, setShowNameModal] = useState<boolean>(false);
 
   // Refs to avoid state closure capture in WebSocket/WebAudio callbacks
   const connectionStateRef = useRef<ConnectionState>('disconnected');
@@ -100,8 +103,21 @@ export default function App() {
       if (currentUser) {
         // Load history when user logs in
         getHistory(currentUser.uid).then(setHistoryLogs);
+        
+        // Check for preferred name
+        const storedName = localStorage.getItem('preferred_name_' + currentUser.uid);
+        if (storedName) {
+          setPreferredName(storedName);
+        } else {
+          // If no stored name, set the temp name to Google display name by default
+          setTempPreferredName(currentUser.displayName || '');
+          setShowNameModal(true);
+        }
       } else {
         setHistoryLogs([]);
+        setPreferredName('');
+        setTempPreferredName('');
+        setShowNameModal(false);
       }
     });
     return () => unsub();
@@ -317,7 +333,14 @@ export default function App() {
 
       // 5. Connect WebSocket endpoint
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/api/live`;
+      let nameParam = "";
+      if (userRef.current) {
+        const storedName = localStorage.getItem('preferred_name_' + userRef.current.uid);
+        if (storedName) {
+          nameParam = `?name=${encodeURIComponent(storedName)}`;
+        }
+      }
+      const wsUrl = `${protocol}//${window.location.host}/api/live${nameParam}`;
       console.log(`Connecting to server proxy at ${wsUrl}`);
       
       const ws = new WebSocket(wsUrl);
@@ -434,78 +457,6 @@ export default function App() {
                 window.open(url, "_blank");
               }, 400);
             } 
-            else if (name === "listEmails" || name === "sendEmail") {
-              const executeGmailTool = async () => {
-                try {
-                  const token = await getAccessToken();
-                  if (!token) {
-                    ws.send(JSON.stringify({ type: "toolResponse", name, id, response: { success: false, message: "User is not authenticated with Gmail. Please ask them to login." } }));
-                    return;
-                  }
-
-                  if (name === "listEmails") {
-                    const maxResults = args.maxResults || 5;
-                    const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}`, {
-                      headers: { Authorization: `Bearer ${token}` }
-                    });
-                    const data = await res.json();
-                    
-                    if (data.messages && data.messages.length > 0) {
-                      const emails = await Promise.all(data.messages.map(async (m: any) => {
-                        const mRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=subject&metadataHeaders=from`, {
-                          headers: { Authorization: `Bearer ${token}` }
-                        });
-                        const mData = await mRes.json();
-                        const headers = mData.payload?.headers || [];
-                        const subject = headers.find((h: any) => h.name.toLowerCase() === 'subject')?.value || 'No Subject';
-                        const from = headers.find((h: any) => h.name.toLowerCase() === 'from')?.value || 'Unknown';
-                        return { id: m.id, snippet: mData.snippet, subject, from };
-                      }));
-                      ws.send(JSON.stringify({ type: "toolResponse", name, id, response: { success: true, emails } }));
-                    } else {
-                      ws.send(JSON.stringify({ type: "toolResponse", name, id, response: { success: true, emails: [] } }));
-                    }
-                  } 
-                  else if (name === "sendEmail") {
-                    const { to, subject, body } = args;
-                    const confirmed = window.confirm(`Aeva wants to send an email to ${to} with subject "${subject}". Allow?`);
-                    if (!confirmed) {
-                      ws.send(JSON.stringify({ type: "toolResponse", name, id, response: { success: false, message: "User denied the request to send email." } }));
-                      return;
-                    }
-                    
-                    const messageParts = [
-                      `To: ${to}`,
-                      `Subject: ${subject}`,
-                      '',
-                      body
-                    ];
-                    const message = messageParts.join('\n');
-                    const encodedMessage = btoa(unescape(encodeURIComponent(message))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-                    
-                    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-                      method: 'POST',
-                      headers: { 
-                        Authorization: `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                      },
-                      body: JSON.stringify({ raw: encodedMessage })
-                    });
-                    
-                    if (res.ok) {
-                      addToast(`Email sent to ${to}`, "success");
-                      ws.send(JSON.stringify({ type: "toolResponse", name, id, response: { success: true, message: "Email sent successfully." } }));
-                    } else {
-                      const errData = await res.json();
-                      ws.send(JSON.stringify({ type: "toolResponse", name, id, response: { success: false, message: "Failed to send email: " + JSON.stringify(errData) } }));
-                    }
-                  }
-                } catch (err: any) {
-                  ws.send(JSON.stringify({ type: "toolResponse", name, id, response: { success: false, message: err.message } }));
-                }
-              };
-              executeGmailTool();
-            }
           }
 
           else if (msg.type === "error") {
@@ -670,6 +621,21 @@ export default function App() {
             
             {user ? (
               <div className="flex items-center gap-1.5 sm:gap-2.5">
+                <div className="hidden md:flex flex-col items-end text-right border-r border-white/10 pr-3 mr-1">
+                  <span className="text-[9px] text-neutral-500 font-mono uppercase">Addressing user as</span>
+                  <button 
+                    onClick={() => {
+                      setTempPreferredName(preferredName);
+                      setShowNameModal(true);
+                    }}
+                    title="Change what Aeva calls you"
+                    className="text-xs font-semibold text-white flex items-center gap-1.5 hover:text-[#FF007F] transition-colors cursor-pointer group"
+                  >
+                    <span className="underline decoration-dashed decoration-neutral-600 group-hover:decoration-[#FF007F] underline-offset-2">{preferredName || user.displayName || "Explorer"}</span>
+                    <Smile className="w-3 h-3 text-neutral-500 group-hover:text-[#FF007F] transition-colors" />
+                  </button>
+                </div>
+
                 <button 
                   onClick={() => setShowHistory(!showHistory)}
                   className={`flex items-center justify-center gap-1.5 px-2.5 py-1 px-3 py-1.5 sm:px-3 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-medium border transition-all cursor-pointer ${showHistory ? 'bg-[#FF007F]/15 border-[#FF007F]/30 text-white' : 'bg-white/5 border-white/5 text-neutral-400 hover:text-white'}`}
@@ -677,6 +643,18 @@ export default function App() {
                   <History className="w-3.5 h-3.5 text-[#FF007F]" />
                   <span className="hidden sm:inline">Memory Logs</span>
                 </button>
+
+                <button 
+                  onClick={() => {
+                    setTempPreferredName(preferredName);
+                    setShowNameModal(true);
+                  }}
+                  title="Change what Aeva calls you"
+                  className="w-7 h-7 sm:w-8 sm:h-8 md:hidden flex items-center justify-center rounded-lg bg-white/5 border border-white/5 text-neutral-400 hover:text-neutral-200 transition-all cursor-pointer"
+                >
+                  <Settings className="w-3.5 h-3.5 text-neutral-400" />
+                </button>
+
                 <button 
                   onClick={() => logout()}
                   className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg bg-white/5 border border-white/5 text-neutral-400 hover:text-neutral-200 transition-all cursor-pointer"
@@ -1051,6 +1029,70 @@ export default function App() {
           COGNITIVE MOOD: {connectionState === "speaking" ? "0.98 SASSY" : connectionState === "listening" ? "0.85 ADAPTIVE" : "0.75 CHILL"}
         </div>
       </footer>
+
+      {/* Preferred Name Modal Popup */}
+      {showNameModal && (
+        <div id="name-modal" className="fixed inset-0 bg-neutral-950/85 backdrop-blur-md flex items-center justify-center p-4 z-[90]">
+          <div className="relative max-w-sm w-full bg-neutral-900 border border-white/10 rounded-2xl p-6 shadow-[0_0_50px_rgba(255,0,127,0.15)] flex flex-col gap-4 text-center overflow-hidden">
+            {/* Dynamic neon top bar */}
+            <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-[#FF007F] to-[#7000FF]"></div>
+            
+            <div className="w-12 h-12 rounded-full bg-[#FF007F]/10 border border-[#FF007F]/25 flex items-center justify-center mx-auto text-[#FF007F] mt-2">
+              <Smile className="w-5 h-5 animate-pulse" />
+            </div>
+            
+            <div className="space-y-1">
+              <h3 className="text-white font-bold text-base uppercase tracking-wider">What should Aeva call you?</h3>
+              <p className="text-xs text-neutral-400 font-light leading-relaxed">
+                Aeva remembers your preferred name between sessions so she can address you naturally during voice chats.
+              </p>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = tempPreferredName.trim();
+              const finalName = trimmed || user?.displayName || "Explorer";
+              if (user) {
+                localStorage.setItem('preferred_name_' + user.uid, finalName);
+                setPreferredName(finalName);
+              }
+              setShowNameModal(false);
+              addToast(`Aeva will now call you ${finalName}`, "success");
+              if (connectionState !== "disconnected") {
+                addToast("Reconnect Aeva core to apply your new name to the live session.", "info");
+              }
+            }} className="flex flex-col gap-4 mt-1">
+              <input 
+                type="text" 
+                value={tempPreferredName}
+                onChange={(e) => setTempPreferredName(e.target.value)}
+                placeholder="Enter your name..."
+                maxLength={25}
+                required
+                className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-sm text-white text-center font-medium placeholder:text-neutral-600 focus:outline-none focus:border-[#FF007F]/50 focus:bg-white/[0.05] transition-all"
+              />
+
+              <div className="flex gap-2.5">
+                {preferredName && (
+                  <button
+                    type="button"
+                    onClick={() => setShowNameModal(false)}
+                    className="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-750 text-neutral-300 rounded-xl font-mono text-[11px] uppercase tracking-wider font-bold transition-all cursor-pointer border border-white/5"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-gradient-to-r from-[#FF007F] to-[#7000FF] text-white hover:opacity-95 rounded-xl font-mono text-[11px] uppercase tracking-wider font-bold transition-all shadow-lg shadow-[#FF007F]/10 cursor-pointer"
+                >
+                  Confirm Name
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Full screen errors panel overlay */}
       {errorMessage && (

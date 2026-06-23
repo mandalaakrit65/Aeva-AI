@@ -5,7 +5,7 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId || "(default)");
 
 let cachedAccessToken: string | null = null;
 
@@ -19,13 +19,6 @@ export const getAccessToken = async (): Promise<string | null> => {
 export const loginWithGoogle = async () => {
   const provider = new GoogleAuthProvider();
   
-  // Gmail scopes
-  provider.addScope('https://mail.google.com/');
-  provider.addScope('https://www.googleapis.com/auth/gmail.modify');
-  provider.addScope('https://www.googleapis.com/auth/gmail.compose');
-  provider.addScope('https://www.googleapis.com/auth/gmail.send');
-  provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
-  
   try {
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -34,7 +27,11 @@ export const loginWithGoogle = async () => {
       localStorage.setItem('google_access_token', credential.accessToken);
     }
     return result;
-  } catch (error) {
+  } catch (error: any) {
+    if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+      console.log('Sign in popup was closed or cancelled.');
+      return null;
+    }
     console.error('Sign in error:', error);
     throw error;
   }

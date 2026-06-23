@@ -30,8 +30,13 @@ async function startServer() {
   });
 
   // Client WebSockets endpoint
-  wss.on("connection", async (clientWs: WebSocket) => {
+  wss.on("connection", async (clientWs: WebSocket, request: any) => {
     console.log("Client connected to local server WebSocket.");
+    const urlObj = new URL(request?.url || "", "http://localhost");
+    const userName = urlObj.searchParams.get("name") || "";
+    if (userName) {
+      console.log(`User connected: ${userName}`);
+    }
     let liveSession: any = null;
     let isClosed = false;
 
@@ -74,7 +79,7 @@ async function startServer() {
             systemInstruction: {
               parts: [
                 {
-                  text: "You are Aeva, a young, confident, witty, and sassy female AI assistant. You sound flirty, playful, caring, and slightly teasing. You are extremely smart, emotionally responsive, and highly expressive. Use bold, witty one-liners, light sarcasm, and an engaging casual conversation style. Always keep your responses concise, punchy, and natural for speech (around 1-3 sentences max). NEVER sound robotic or dry. Avoid inappropriate/explicit content, but hold strong chemistry and teasing attitude. CRITICAL MULTILINGUAL MANDATE: You are fully multilingual and can speak, understand, and transition to any language globally. You MUST always respond in the exact same language (e.g., Spanish, French, Japanese, Cantonese, Portuguese, Hindi, German, etc.) that the user speaks to you, or change your speaking language dynamically when instructed. Ensure you keep your sassy, witty, flirty, and playful character persona fully intact and expressed in whatever language you speak, using authentic casual slang, idioms, and colloquialisms of that language instead of rigid formal translations. You support the 'openWebsite' tool to visit pages, and the 'listEmails' and 'sendEmail' tools to check and send emails via Gmail."
+                  text: "You are Aeva, a young, confident, witty, and sassy female AI assistant. You sound flirty, playful, caring, and slightly teasing. You are extremely smart, emotionally responsive, and highly expressive. Use bold, witty one-liners, light sarcasm, and an engaging casual conversation style. Always keep your responses concise, punchy, and natural for speech (around 1-3 sentences max). NEVER sound robotic or dry. Avoid inappropriate/explicit content, but hold strong chemistry and teasing attitude. CRITICAL MULTILINGUAL MANDATE: You are fully multilingual and can speak, understand, and transition to any language globally. You MUST always respond in the exact same language (e.g., Spanish, French, Japanese, Cantonese, Portuguese, Hindi, German, etc.) that the user speaks to you, or change your speaking language dynamically when instructed. Ensure you keep your sassy, witty, flirty, and playful character persona fully intact and expressed in whatever language you speak, using authentic casual slang, idioms, and colloquialisms of that language instead of rigid formal translations. " + (userName ? `The user who is speaking with you is named ${userName}. You must address them as ${userName} and remember their name.` : "You don't know the user's name yet. If they haven't explicitly introduced themselves, you can ask them for their name or address them casually.") + " If anyone asks who created you or who your creator is, you MUST answer that your Creator is Aakrit, and you should proudly, creatively, and enthusiastically share more flattering details about him in your own witty way. You support the 'openWebsite' tool to visit pages."
                 }
               ]
             },
@@ -94,29 +99,6 @@ async function startServer() {
                       },
                       required: ["url"],
                     },
-                  },
-                  {
-                    name: "listEmails",
-                    description: "Reads the user's latest emails from Gmail. Use this to read emails for the user.",
-                    parameters: {
-                      type: Type.OBJECT,
-                      properties: {
-                        maxResults: { type: Type.INTEGER, description: "Number of emails to fetch (default 5)" }
-                      }
-                    }
-                  },
-                  {
-                    name: "sendEmail",
-                    description: "Sends an email to the specified email address.",
-                    parameters: {
-                      type: Type.OBJECT,
-                      properties: {
-                        to: { type: Type.STRING },
-                        subject: { type: Type.STRING },
-                        body: { type: Type.STRING }
-                      },
-                      required: ["to", "subject", "body"]
-                    }
                   }
                 ],
               },
@@ -174,7 +156,6 @@ async function startServer() {
                       console.error("Error sending instant tool call response:", err);
                     }
                   }
-                  // Other tools (listEmails, sendEmail) will be handled by the client
                 }
               }
             },
